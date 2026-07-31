@@ -170,3 +170,4 @@ esp_err_t i2c_bitaxe_register_write_word(i2c_master_dev_handle_t dev_handle, uin
     uint8_t write_buf[3] = {reg_addr, (uint8_t)(data & 0x00FF), (uint8_t)((data & 0xFF00) >> 8)};
     return i2c_transfer_with_retries(dev_handle, write_buf, 3, NULL, 0);
 }
+
