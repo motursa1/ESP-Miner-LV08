@@ -2,6 +2,9 @@
 #include <math.h>
 #include <stdio.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "DS4432U.h"
 #include "INA260.h"
 #include "TPS546.h"
@@ -112,8 +115,30 @@ esp_err_t VCORE_init(GlobalState * GLOBAL_STATE)
         TPS546_CONFIG tps_config = get_tps546_config(&GLOBAL_STATE->DEVICE_CONFIG.family);
         switch (GLOBAL_STATE->DEVICE_CONFIG.family.id) {
             case LV08:
-                for (int addr = 0; addr < 3; addr++) {
-                    ESP_RETURN_ON_ERROR(TPS546_init(tps_config, addr), TAG, "TPS546 init failed!");
+                {
+                    // LV08 tolerant init: this board's TPS546 can briefly drop off the
+                    // I2C bus on a cold start. Retry the full init a few times with a
+                    // pause, and if it still doesn't confirm, continue booting anyway
+                    // (as firmware v2.12.0-1 did) instead of falling into degraded mode.
+                    // The regulator recovers and accepts the voltage command during
+                    // normal startup.
+                    esp_err_t lv08_ret = ESP_FAIL;
+                    for (int attempt = 0; attempt < 5 && lv08_ret != ESP_OK; attempt++) {
+                        lv08_ret = ESP_OK;
+                        for (int addr = 0; addr < 3; addr++) {
+                            if (TPS546_init(tps_config, addr) != ESP_OK) {
+                                lv08_ret = ESP_FAIL;
+                                break;
+                            }
+                        }
+                        if (lv08_ret != ESP_OK) {
+                            ESP_LOGW(TAG, "TPS546 init attempt %d/5 failed, retrying in 500ms...", attempt + 1);
+                            vTaskDelay(500 / portTICK_PERIOD_MS);
+                        }
+                    }
+                    if (lv08_ret != ESP_OK) {
+                        ESP_LOGW(TAG, "TPS546 did not confirm after retries; continuing boot anyway (LV08 tolerant mode)");
+                    }
                 }
                 break;
             default:
