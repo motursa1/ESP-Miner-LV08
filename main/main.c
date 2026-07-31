@@ -103,7 +103,16 @@ void app_main(void)
     }
 
     esp_err_t system_init_ret = SYSTEM_init_peripherals(&GLOBAL_STATE);
-    
+
+    if (system_init_ret != ESP_OK && !GLOBAL_STATE.SELF_TEST_MODULE.is_active) {
+        // LV08 tolerant boot: a transient I2C hiccup on the regulator or thermal
+        // sensor at cold start must not brick the miner. Firmware v2.12.0-1 ignored
+        // this return entirely and always powered up and mined. Replicate that so we
+        // don't fall into degraded mode over a momentary I2C glitch.
+        ESP_LOGW(TAG, "Peripheral init returned %s; continuing anyway (tolerant boot)", esp_err_to_name(system_init_ret));
+        system_init_ret = ESP_OK;
+    }
+
     if (system_init_ret == ESP_OK) {
         if (xTaskCreate(POWER_MANAGEMENT_task, "power management", 8192, (void *) &GLOBAL_STATE, 10, NULL) != pdPASS) {
             ESP_LOGE(TAG, "Error creating power management task");
